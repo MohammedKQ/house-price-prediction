@@ -66,7 +66,7 @@ An interactive dashboard was developed using **Streamlit** to:
 
 ## Price Prediction
 
-![Prediction](pred.png)
+![Prediction](prede.png)
 
 ---
 
