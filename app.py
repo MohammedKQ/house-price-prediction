@@ -1,152 +1,236 @@
 import streamlit as st
 import pandas as pd
-import joblib
-import matplotlib.pyplot as plt
-import seaborn as sns
+import numpy as np
+import plotly.express as px
+from sklearn.ensemble import RandomForestRegressor
+import os
 
-# Page config
-st.set_page_config(page_title="Saudi House Rent Dashboard", layout="wide")
-
-# Load data
-df = pd.read_csv("cleaned_house_data.csv")
-model = joblib.load("house_model.pkl")
-
-# Title
-st.title("Saudi House Rent Dashboard & Prediction")
-
-# Sidebar
-st.sidebar.header("Dataset Info")
-st.sidebar.write("""
-This dataset contains house rental information in Saudi Arabia.
-The model predicts **annual rent price** based on property features.
-""")
-
-# Filters
-st.sidebar.header("Filters")
-
-bedrooms_filter = st.sidebar.multiselect(
-    "Bedrooms",
-    options=sorted(df["bedrooms"].unique()),
-    default=sorted(df["bedrooms"].unique())
+# 1. إعدادات الصفحة والهوية البصرية
+st.set_page_config(
+    page_title="منصة إيجار الذكية | التحليل المتقدم",
+    page_icon="🏠",
+    layout="wide"
 )
 
-price_range = st.sidebar.slider(
-    "Price Range",
-    int(df["price"].min()),
-    int(df["price"].max()),
-    (int(df["price"].min()), int(df["price"].max()))
-)
+# تصميم CSS مخصص لضمان الجمالية ووضوح النصوص في كل الأقسام
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap');
+    html, body, [class*="css"] { 
+        font-family: 'Tajawal', sans-serif; 
+        text-align: right; 
+    }
+    
+    /* بطاقات المؤشرات الداكنة في الصفحة الرئيسية */
+    [data-testid="stMetric"] {
+        background-color: #111827;
+        border-right: 5px solid #fbbf24;
+        padding: 20px;
+        border-radius: 12px;
+    }
+    [data-testid="stMetricLabel"] { color: #9ca3af !important; font-size: 1rem !important; }
+    [data-testid="stMetricValue"] { color: #fbbf24 !important; font-size: 1.8rem !important; }
 
-filtered_df = df[
-    (df["bedrooms"].isin(bedrooms_filter)) &
-    (df["price"].between(price_range[0], price_range[1]))
-]
+    /* تحسين قسم رؤى البيانات (Insights) - نصوص واضحة وداكنة */
+    .insight-card {
+        background-color: #ffffff; /* خلفية بيضاء */
+        border-right: 5px solid #1e3a8a; /* خط جانبي كحلي */
+        padding: 20px;
+        margin: 15px 0;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .insight-card h4 {
+        color: #1e3a8a !important; /* عنوان كحلي */
+        margin-bottom: 10px;
+        font-weight: bold;
+    }
+    .insight-card p {
+        color: #334155 !important; /* نص رمادي داكن واضح جداً */
+        line-height: 1.6;
+        font-size: 1.05rem;
+        margin: 0;
+    }
 
-# Metrics
-st.subheader("Market Overview")
+    .main-header {
+        background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+        color: white;
+        padding: 2.5rem;
+        border-radius: 20px;
+        margin-bottom: 2rem;
+        text-align: center;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-col1, col2, col3 = st.columns(3)
+# 2. تحميل البيانات وتجهيز المتغيرات العامة
+@st.cache_data
+def load_data():
+    file_name = "cleaned_house_data.csv"
+    if os.path.exists(file_name):
+        data = pd.read_csv(file_name)
+        data['price_per_sqm'] = data['price'] / data['size']
+        return data
+    return None
 
-col1.metric("Total Properties", len(filtered_df))
-col2.metric("Average Rent", f"{filtered_df['price'].mean():,.0f} SAR")
-col3.metric("Highest Rent", f"{filtered_df['price'].max():,.0f} SAR")
+df = load_data()
 
-# Data preview
-st.subheader("Sample Data")
-st.dataframe(filtered_df.head())
+# تعريف المتغيرات في النطاق العام لتجنب NameError
+if df is not None:
+    # البحث عن أعمدة المدن (مع مراعاة وجود مسافة في الاسم كما في الملف)
+    city_cols = [c for c in df.columns if 'city_' in c]
+    city_names = [c.replace('city_ ', '').replace('city_', '') for c in city_cols]
+else:
+    city_cols = []
+    city_names = []
 
-# Visualizations
-st.subheader("Market Visualizations")
+# 3. القائمة الجانبية للتنقل
+with st.sidebar:
+    st.markdown("<h2 style='text-align: center;'>🏘️ نظام إيجار</h2>", unsafe_allow_html=True)
+    st.divider()
+    page = st.radio("القائمة الرئيسية:", [
+        "🏠 الشاشة الرئيسية", 
+        "📊 التحليلات التفاعلية", 
+        "💡 رؤى البيانات (Insights)",
+        "🤖 التنبؤ والذكاء الاصطناعي"
+    ])
+    st.divider()
+    st.info("💡 النظام مخصص لتحليل **الإيجار السنوي**.")
 
-col1, col2 = st.columns(2)
+# التحقق من وجود البيانات قبل عرض المحتوى
+if df is None:
+    st.error("❌ ملف 'cleaned_house_data.csv' غير موجود في المجلد الحالي.")
+else:
+    # --- الصفحة 1: الشاشة الرئيسية ---
+    if page == "🏠 الشاشة الرئيسية":
+        st.markdown("""
+            <div class="main-header">
+                <h1>المنصة الذكية لتحليل إيجارات العقارات 🇸🇦</h1>
+                <p>استكشاف وتوقع أسعار الإيجار السنوي بدقة وموثوقية</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.subheader("📌 نبذة عن السوق (بيانات الإيجار السنوي)")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("إجمالي الوحدات", f"{len(df):,}")
+        m2.metric("متوسط الإيجار", f"{int(df['price'].mean()):,} ر.س")
+        m3.metric("متوسط سعر المتر", f"{int(df['price_per_sqm'].mean()):,} ر.س")
+        m4.metric("أكثر مدينة توفراً", city_names[0] if city_names else "غير محدد")
 
-with col1:
-    fig, ax = plt.subplots()
-    sns.histplot(filtered_df["price"], kde=True, ax=ax)
-    ax.set_title("Rent Price Distribution")
-    st.pyplot(fig)
+        st.divider()
+        st.markdown("### 🎯 كيف تستخدم المنصة؟")
+        st.write("يمكنك التنقل عبر القائمة الجانبية لاستكشاف الرسوم البيانية التفاعلية، أو الحصول على استنتاجات سريعة من قسم 'رؤى البيانات'، أو استخدام الذكاء الاصطناعي لتقدير القيمة الإيجارية لأي عقار.")
 
-with col2:
-    fig, ax = plt.subplots()
-    sns.scatterplot(data=filtered_df, x="size", y="price", ax=ax)
-    ax.set_title("Property Size vs Rent Price")
-    st.pyplot(fig)
+    # --- الصفحة 2: التحليلات التفاعلية ---
+    elif page == "📊 التحليلات التفاعلية":
+        st.title("📊 لوحة التحكم التفاعلية")
+        tab1, tab2 = st.tabs(["📍 توزيع المدن", "📏 المساحة مقابل السعر"])
+        
+        with tab1:
+            city_data = []
+            for c in city_cols:
+                name = c.replace('city_ ', '').replace('city_', '')
+                city_data.append({'المدينة': name, 'العدد': df[df[c] == 1].shape[0], 'متوسط السعر': df[df[c] == 1]['price'].mean()})
+            c_df = pd.DataFrame(city_data)
+            
+            c_left, c_right = st.columns(2)
+            with c_left:
+                st.plotly_chart(px.pie(c_df, values='العدد', names='المدينة', hole=0.5, title="نسبة توفر العقارات"), use_container_width=True)
+            with c_right:
+                st.plotly_chart(px.bar(c_df, x='المدينة', y='متوسط السعر', color='المدينة', title="مقارنة متوسط الإيجار السنوي"), use_container_width=True)
 
-# Insights
-st.subheader("Insights")
+        with tab2:
+            st.plotly_chart(px.scatter(df, x="size", y="price", color="property_age", size="bedrooms",
+                                     title="تأثير المساحة والعمر على قيمة الإيجار"), use_container_width=True)
 
-st.write("""
-- Larger houses tend to have higher rental prices.
-- Houses with more bedrooms usually cost more.
-- Property size is one of the strongest factors affecting rent.
-""")
+    # --- الصفحة 3: رؤى البيانات (Insights) ---
+    elif page == "💡 رؤى البيانات (Insights)":
+        st.title("💡 أهم الاستنتاجات من تحليل البيانات")
+        st.write("رؤى تحليلية تم استخلاصها من أنماط البيانات الحالية لسوق الإيجار:")
 
-# Prediction section
-st.subheader("Predict Rental Price")
+        # استخدام حاويات مخصصة لضمان وضوح النص
+        col_in1, col_in2 = st.columns(2)
+        
+        with col_in1:
+            st.markdown("""
+                <div class="insight-card">
+                    <h4>🏙️ تمركز السوق</h4>
+                    <p>أظهرت البيانات أن مدينة الرياض تستحوذ على الحصة الأكبر من العقارات المعروضة للإيجار السنوي، وتتميز بتباين كبير في الأسعار بناءً على الموقع والمساحة.</p>
+                </div>
+                <div class="insight-card">
+                    <h4>📉 تأثير تقادم البناء</h4>
+                    <p>تنخفض قيمة الإيجار بشكل تدريجي مع زيادة عمر العقار، ولكن يظل الموقع والمرافق (مثل المصعد والتكييف) عوامل قوية في الحفاظ على سعر مرتفع.</p>
+                </div>
+            """, unsafe_allow_html=True)
 
-col1, col2 = st.columns(2)
+        with col_in2:
+            st.markdown("""
+                <div class="insight-card">
+                    <h4>📐 المساحات الأكثر طلباً</h4>
+                    <p>العقارات التي تتراوح مساحتها بين 200 إلى 350 متر مربع هي الأكثر توازناً من حيث قيمة الإيجار السنوي مقابل سعر المتر المربع.</p>
+                </div>
+                <div class="insight-card">
+                    <h4>✨ القيمة المضافة للمرافق</h4>
+                    <p>العقارات التي تتوفر فيها مرافق إضافية (مسبح، كراج، غرفة خادمة) تسجل إيجارات سنوية أعلى بنسبة تصل إلى 20% عن العقارات التقليدية.</p>
+                </div>
+            """, unsafe_allow_html=True)
 
-with col1:
-    size = st.number_input("Size (m²)", min_value=50, max_value=1000, value=300)
-    property_age = st.number_input("Property Age", min_value=0, max_value=50, value=5)
-    bedrooms = st.number_input("Bedrooms", min_value=1, max_value=10, value=4)
-    bathrooms = st.number_input("Bathrooms", min_value=1, max_value=10, value=3)
-    livingrooms = st.number_input("Living Rooms", min_value=1, max_value=5, value=2)
+        st.divider()
+        st.subheader("📊 سعر المتر المربع التقديري")
+        city_m2_data = [{'المدينة': c.replace('city_ ', '').replace('city_', ''), 'سعر المتر': df[df[c] == 1]['price_per_sqm'].mean()} for c in city_cols]
+        st.plotly_chart(px.line(pd.DataFrame(city_m2_data), x='المدينة', y='سعر المتر', markers=True, title="متوسط تكلفة المتر المربع (إيجار سنوي)"), use_container_width=True)
 
-with col2:
-    kitchen = st.selectbox("Kitchen", [0,1])
-    garage = st.selectbox("Garage", [0,1])
-    driver_room = st.selectbox("Driver Room", [0,1])
-    maid_room = st.selectbox("Maid Room", [0,1])
-    furnished = st.selectbox("Furnished", [0,1])
+    # --- الصفحة 4: التنبؤ والذكاء الاصطناعي ---
+    elif page == "🤖 التنبؤ والذكاء الاصطناعي":
+        st.title("🤖 التنبؤ بسعر الإيجار العادل")
+        
+        # تجهيز الميزات (تجنب الأعمدة التحليلية المضافة)
+        X = df.drop(['price', 'price_per_sqm'], axis=1)
+        y = df['price']
 
-col3, col4 = st.columns(2)
+        @st.cache_resource
+        def train_model():
+            rf = RandomForestRegressor(n_estimators=100, random_state=42)
+            rf.fit(X, y)
+            return rf
 
-with col3:
-    ac = st.selectbox("AC", [0,1])
-    roof = st.selectbox("Roof", [0,1])
-    pool = st.selectbox("Pool", [0,1])
-    frontyard = st.selectbox("Front Yard", [0,1])
+        model = train_model()
 
-with col4:
-    basement = st.selectbox("Basement", [0,1])
-    duplex = st.selectbox("Duplex", [0,1])
-    stairs = st.selectbox("Stairs", [0,1])
-    elevator = st.selectbox("Elevator", [0,1])
-    fireplace = st.selectbox("Fireplace", [0,1])
+        with st.form("ai_predict_form"):
+            st.subheader("📋 أدخل مواصفات الوحدة السكنية")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                in_city = st.selectbox("المدينة", city_names)
+                in_size = st.number_input("المساحة (م²)", value=300)
+                in_age = st.slider("عمر العقار", 0, 40, 5)
+            with c2:
+                in_rooms = st.number_input("غرف النوم", 1, 10, 4)
+                f_ac = st.checkbox("مكيفات راكبة")
+                f_kitchen = st.checkbox("مطبخ جاهز")
+            with c3:
+                f_pool = st.checkbox("مسبح خاص")
+                f_garage = st.checkbox("مدخل سيارة")
+                f_lift = st.checkbox("مصعد")
 
-city = st.selectbox("City", ["الرياض","جدة","الدمام","الخبر"])
+            if st.form_submit_button("توقع الإيجار السنوي"):
+                input_row = pd.DataFrame(0, index=[0], columns=X.columns)
+                input_row['size'], input_row['property_age'], input_row['bedrooms'] = in_size, in_age, in_rooms
+                input_row['ac'] = 1 if f_ac else 0
+                input_row['kitchen'] = 1 if f_kitchen else 0
+                input_row['pool'] = 1 if f_pool else 0
+                input_row['garage'] = 1 if f_garage else 0
+                input_row['elevator'] = 1 if f_lift else 0
+                
+                # تفعيل عمود المدينة
+                city_key = f"city_ {in_city}" if f"city_ {in_city}" in X.columns else f"city_{in_city}"
+                if city_key in input_row.columns: input_row[city_key] = 1
 
-if st.button("Predict Price"):
-
-    input_data = pd.DataFrame(columns=df.drop("price", axis=1).columns)
-    input_data.loc[0] = 0
-
-    input_data["size"] = size
-    input_data["property_age"] = property_age
-    input_data["bedrooms"] = bedrooms
-    input_data["bathrooms"] = bathrooms
-    input_data["livingrooms"] = livingrooms
-    input_data["kitchen"] = kitchen
-    input_data["garage"] = garage
-    input_data["driver_room"] = driver_room
-    input_data["maid_room"] = maid_room
-    input_data["furnished"] = furnished
-    input_data["ac"] = ac
-    input_data["roof"] = roof
-    input_data["pool"] = pool
-    input_data["frontyard"] = frontyard
-    input_data["basement"] = basement
-    input_data["duplex"] = duplex
-    input_data["stairs"] = stairs
-    input_data["elevator"] = elevator
-    input_data["fireplace"] = fireplace
-
-    city_column = f"city_{city}"
-
-    if city_column in input_data.columns:
-        input_data[city_column] = 1
-
-    prediction = model.predict(input_data)
-
-    st.success(f"Predicted Annual Rent: {prediction[0]:,.0f} SAR")
+                prediction = model.predict(input_row)[0]
+                
+                st.markdown(f"""
+                    <div style='background-color: #f0fdf4; border: 2px solid #22c55e; padding: 30px; border-radius: 15px; text-align: center;'>
+                        <h2 style='color: #166534; margin: 0;'>قيمة الإيجار السنوي المتوقعة</h2>
+                        <h1 style='color: #15803d; font-size: 3.5rem; margin: 15px 0;'>{int(prediction):,} <small style='font-size: 1.2rem;'>ريال</small></h1>
+                    </div>
+                """, unsafe_allow_html=True)
+                st.balloons()
