@@ -60,7 +60,7 @@ An interactive dashboard was developed using **Streamlit** to:
 
 ## Visualizations
 
-![Visualization](h5st.png)
+![Visualization](hist.png)
 
 ---
 
