@@ -95,6 +95,9 @@ Run the Streamlit app:
 streamlit run app.py
 ```
 
+## 🚀 Live Demo
+You can access the live dashboard here: [Streamlit App](https://house-price-prediction-jjyugyb9drgiy8xmb7uyru.streamlit.app/)
+
 ---
 
 # 📌 Key Insights
