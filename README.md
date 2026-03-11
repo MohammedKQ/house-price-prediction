@@ -54,19 +54,19 @@ An interactive dashboard was developed using **Streamlit** to:
 
 ## Main Dashboard
 
-![Dashboard](dashpord.png)
+![Dashboard](dash.png)
 
 ---
 
 ## Visualizations
 
-![Visualization](vis.png)
+![Visualization](h5st.png)
 
 ---
 
 ## Price Prediction
 
-![Prediction](prede.png)
+![Prediction](rent.png)
 
 ---
 
